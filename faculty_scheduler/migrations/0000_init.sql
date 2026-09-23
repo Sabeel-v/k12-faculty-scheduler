@@ -1,0 +1,2 @@
+-- Cloudflare D1 Migrations
+-- Keep migrations numbered sequentially, e.g. 0001_initial_schema.sql
