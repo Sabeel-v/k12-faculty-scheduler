@@ -8,6 +8,7 @@ import { subjectsRoute } from './routes/subjects';
 import { facultyRoute } from './routes/faculty';
 import { classesRoute } from './routes/classes';
 import { schedulesRoute } from './routes/schedules';
+import { youtubeSchedulesRoute } from './routes/youtube-schedules';
 import { syncRoute } from './routes/sync';
 import { publicStudentRoute } from './routes/public-student';
 import type { Env } from './types';
@@ -33,6 +34,7 @@ app.route('/api/subjects', subjectsRoute);
 app.route('/api/faculty', facultyRoute);
 app.route('/api/classes', classesRoute);
 app.route('/api/schedules', schedulesRoute);
+app.route('/api/youtube-schedules', youtubeSchedulesRoute);
 app.route('/api/sync', syncRoute);
 
 export default app;

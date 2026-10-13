@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api, getAdminToken, setAdminToken, removeAdminToken } from '../../lib/api';
-import type { Subject, Faculty, ClassItem, Schedule } from '../../types';
+import type { Subject, Faculty, ClassItem, Schedule, YouTubeSchedule } from '../../types';
 import { ScheduleModal } from './ScheduleModal';
+import { YouTubeAdminSection } from './YouTubeAdminSection';
 import { SubjectFacultySection } from './SubjectFacultySection';
 import { ClassesSection } from './ClassesSection';
 import { getSubjectTheme } from '../../lib/subjectColors';
@@ -15,6 +16,10 @@ export const AdminPage: React.FC = () => {
 
   // Active Admin Sub-tab
   const [activeTab, setActiveTab] = useState<'schedules' | 'subjects_faculty' | 'classes'>('schedules');
+
+  // Schedule Platform Switcher: APP Live vs. YouTube
+  const [schedulePlatform, setSchedulePlatform] = useState<'app' | 'youtube'>('app');
+  const [youtubeSchedules, setYouTubeSchedules] = useState<YouTubeSchedule[]>([]);
 
   // Schedule View Mode
   const [scheduleViewMode, setScheduleViewMode] = useState<'date' | 'subject' | 'class' | 'faculty'>('date');
@@ -99,13 +104,15 @@ export const AdminPage: React.FC = () => {
   const refreshAllData = async () => {
     try {
       setLoading(true);
-      const [schData, subData, facData, clsData] = await Promise.all([
+      const [schData, ytData, subData, facData, clsData] = await Promise.all([
         api.getSchedules(),
+        api.getYouTubeSchedules(),
         api.getSubjects(),
         api.getFaculty(),
         api.getClasses()
       ]);
       setSchedules(schData);
+      setYouTubeSchedules(ytData);
       setSubjects(subData);
       setFacultyList(facData);
       setClasses(clsData);
@@ -933,8 +940,58 @@ export const AdminPage: React.FC = () => {
       {/* TAB 1: SCHEDULES MANAGEMENT */}
       {activeTab === 'schedules' && (
         <div className="space-y-6">
-          {/* Streamlined Schedule Section Header with Integrated View Tabs */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+          {/* Top Platform Switcher: APP Live vs. YouTube */}
+          <div className="flex items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl p-2.5 shadow-xs">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSchedulePlatform('app')}
+                className={`px-4 py-2 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer ${
+                  schedulePlatform === 'app'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <span>📱</span>
+                <span>APP Live</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    schedulePlatform === 'app' ? 'bg-slate-800 text-slate-200' : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {schedules.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSchedulePlatform('youtube')}
+                className={`px-4 py-2 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer ${
+                  schedulePlatform === 'youtube'
+                    ? 'bg-red-600 text-white shadow-xs shadow-red-500/25 ring-2 ring-red-500/20'
+                    : 'text-slate-600 hover:text-red-600 hover:bg-red-50/50'
+                }`}
+              >
+                <span>▶️</span>
+                <span>YouTube</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    schedulePlatform === 'youtube' ? 'bg-red-700 text-white' : 'bg-red-100 text-red-700'
+                  }`}
+                >
+                  {youtubeSchedules.length}
+                </span>
+              </button>
+            </div>
+
+            <div className="text-[11px] font-medium text-slate-400 hidden sm:block">
+              {schedulePlatform === 'app' ? 'Academic live timetable' : 'Public video & stream deliverables'}
+            </div>
+          </div>
+
+          {schedulePlatform === 'app' ? (
+            <>
+              {/* Streamlined Schedule Section Header with Integrated View Tabs */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
             <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-bold text-slate-900 tracking-tight">SCHEDULES</h2>
@@ -1705,8 +1762,19 @@ export const AdminPage: React.FC = () => {
               ))}
             </div>
           )}
-        </div>
+        </>
+      ) : (
+        <YouTubeAdminSection
+          youtubeSchedules={youtubeSchedules}
+          classes={classes}
+          subjects={subjects}
+          facultyList={facultyList}
+          onRefresh={refreshAllData}
+          onAlert={(banner) => setAlertBanner(banner)}
+        />
       )}
+    </div>
+  )}
 
       {/* TAB 2: SUBJECTS & FACULTY */}
       {activeTab === 'subjects_faculty' && (

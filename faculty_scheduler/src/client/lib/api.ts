@@ -1,4 +1,4 @@
-import type { Subject, Faculty, ClassItem, Schedule } from '../types';
+import type { Subject, Faculty, ClassItem, Schedule, YouTubeSchedule, YouTubeScheduleType } from '../types';
 
 export const ADMIN_TOKEN_KEY = 'fs_admin_token';
 
@@ -212,5 +212,72 @@ export const api = {
   getSyncVersion: (facultyId?: number) => {
     const qs = facultyId ? `?faculty_id=${facultyId}` : '';
     return request<{ version: string; timestamp: number }>(`/api/sync/version${qs}`);
-  }
+  },
+
+  // YouTube Schedules
+  getYouTubeSchedules: (filters?: {
+    date?: string;
+    from?: string;
+    to?: string;
+    faculty_id?: number;
+    class_id?: number;
+    subject_id?: number;
+    type?: string;
+    status?: string;
+    is_common?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.date) params.set('date', filters.date);
+    if (filters?.from) params.set('from', filters.from);
+    if (filters?.to) params.set('to', filters.to);
+    if (filters?.faculty_id) params.set('faculty_id', String(filters.faculty_id));
+    if (filters?.class_id) params.set('class_id', String(filters.class_id));
+    if (filters?.subject_id) params.set('subject_id', String(filters.subject_id));
+    if (filters?.type) params.set('type', filters.type);
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.is_common !== undefined) params.set('is_common', filters.is_common);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<YouTubeSchedule[]>(`/api/youtube-schedules${qs}`);
+  },
+  createYouTubeSchedule: (payload: {
+    schedule_date: string;
+    schedule_type: YouTubeScheduleType;
+    class_ids: number[];
+    faculty_ids: number[];
+    is_common?: boolean;
+    subject_id?: number | null;
+    start_time?: string | null;
+    content?: string | null;
+    status?: string;
+    notes?: string | null;
+  }) =>
+    request<YouTubeSchedule>('/api/youtube-schedules', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+  updateYouTubeSchedule: (id: number, payload: Partial<{
+    schedule_date: string;
+    schedule_type: YouTubeScheduleType;
+    class_ids: number[];
+    faculty_ids: number[];
+    is_common: boolean;
+    subject_id: number | null;
+    start_time: string | null;
+    content: string | null;
+    status: string;
+    notes: string | null;
+  }>) =>
+    request<YouTubeSchedule>(`/api/youtube-schedules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    }),
+  updateYouTubeScheduleDate: (id: number, schedule_date: string) =>
+    request<YouTubeSchedule>(`/api/youtube-schedules/${id}/date`, {
+      method: 'PATCH',
+      body: JSON.stringify({ schedule_date })
+    }),
+  deleteYouTubeSchedule: (id: number) =>
+    request<{ success: boolean; message: string }>(`/api/youtube-schedules/${id}`, {
+      method: 'DELETE'
+    })
 };

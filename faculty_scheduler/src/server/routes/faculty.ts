@@ -88,6 +88,16 @@ facultyRoute.get('/:id', async (c) => {
     return c.json({ error: 'NOT_FOUND', message: 'Faculty not found' }, 404);
   }
 
+  const allSubjRows = await db
+    .prepare(
+      `SELECT DISTINCT s.id, s.name
+       FROM faculty f
+       JOIN subjects s ON f.subject_id = s.id
+       WHERE LOWER(TRIM(f.name)) = LOWER(TRIM(?))`
+    )
+    .bind(row.name)
+    .all<any>();
+
   return c.json({
     id: row.id,
     subject_id: row.subject_id,
@@ -101,7 +111,11 @@ facultyRoute.get('/:id', async (c) => {
     subject: {
       id: row.subject_id,
       name: row.subject_name
-    }
+    },
+    subjects: (allSubjRows.results || []).map((s: any) => ({
+      id: s.id,
+      name: s.name
+    }))
   });
 });
 
@@ -132,7 +146,11 @@ facultyRoute.get('/:id/schedules', async (c) => {
     JOIN faculty f ON sc.faculty_id = f.id
     JOIN subjects s ON sc.subject_id = s.id
     JOIN classes cl ON sc.class_id = cl.id
-    WHERE sc.faculty_id = ?
+    WHERE sc.faculty_id IN (
+      SELECT id FROM faculty WHERE LOWER(TRIM(name)) = (
+        SELECT LOWER(TRIM(name)) FROM faculty WHERE id = ?
+      )
+    )
   `;
 
   const params: unknown[] = [id];
@@ -168,6 +186,7 @@ facultyRoute.get('/:id/schedules', async (c) => {
     content: row.content,
     status: row.status,
     notes: row.notes,
+    platform: 'app' as const,
     created_at: row.created_at,
     updated_at: row.updated_at,
     faculty: {
@@ -185,7 +204,277 @@ facultyRoute.get('/:id/schedules', async (c) => {
     }
   }));
 
-  return c.json(schedules);
+  // Also fetch assigned YouTube schedules for this faculty (and all profiles with the same teacher name)
+  let ytQuery = `
+    SELECT DISTINCT
+      ys.*,
+      s.name as subject_name
+    FROM youtube_schedules ys
+    JOIN youtube_schedule_faculties ysf ON ys.id = ysf.youtube_schedule_id
+    LEFT JOIN subjects s ON ys.subject_id = s.id
+    WHERE ysf.faculty_id IN (
+      SELECT id FROM faculty WHERE LOWER(TRIM(name)) = (
+        SELECT LOWER(TRIM(name)) FROM faculty WHERE id = ?
+      )
+    )
+  `;
+  const ytParams: unknown[] = [id];
+
+  if (date) {
+    ytQuery += ' AND ys.schedule_date = ?';
+    ytParams.push(date);
+  } else {
+    if (from) {
+      ytQuery += ' AND ys.schedule_date >= ?';
+      ytParams.push(from);
+    }
+    if (to) {
+      ytQuery += ' AND ys.schedule_date <= ?';
+      ytParams.push(to);
+    }
+  }
+
+  const ytStmt = db.prepare(ytQuery);
+  const ytResult = await ytStmt.bind(...ytParams).all<any>();
+  const ytRows = ytResult.results || [];
+
+  let ytSchedules: any[] = [];
+  if (ytRows.length > 0) {
+    const ytIds = ytRows.map((r) => r.id);
+    const placeholders = ytIds.map(() => '?').join(',');
+
+    // Fetch classes for these YouTube schedules
+    const cRes = await db
+      .prepare(
+        `SELECT ysc.youtube_schedule_id, c.id, c.name, c.batch
+         FROM youtube_schedule_classes ysc
+         JOIN classes c ON ysc.class_id = c.id
+         WHERE ysc.youtube_schedule_id IN (${placeholders})
+         ORDER BY c.display_order ASC, c.name ASC`
+      )
+      .bind(...ytIds)
+      .all<any>();
+
+    // Fetch faculties for these YouTube schedules
+    const fRes = await db
+      .prepare(
+        `SELECT ysf.youtube_schedule_id, f.id, f.name, f.department, f.subject_id, s.name as subject_name
+         FROM youtube_schedule_faculties ysf
+         JOIN faculty f ON ysf.faculty_id = f.id
+         LEFT JOIN subjects s ON f.subject_id = s.id
+         WHERE ysf.youtube_schedule_id IN (${placeholders})
+         ORDER BY f.display_order ASC, f.name ASC`
+      )
+      .bind(...ytIds)
+      .all<any>();
+
+    const cMap = new Map<number, Array<{ id: number; name: string; batch?: string | null }>>();
+    for (const cRow of cRes.results || []) {
+      const arr = cMap.get(cRow.youtube_schedule_id) || [];
+      arr.push({ id: cRow.id, name: cRow.name, batch: cRow.batch || null });
+      cMap.set(cRow.youtube_schedule_id, arr);
+    }
+
+    const fMap = new Map<number, Array<{ id: number; name: string; department?: string | null; subject_id?: number; subject_name?: string }>>();
+    for (const fRow of fRes.results || []) {
+      const arr = fMap.get(fRow.youtube_schedule_id) || [];
+      arr.push({
+        id: fRow.id,
+        name: fRow.name,
+        department: fRow.department || null,
+        subject_id: fRow.subject_id,
+        subject_name: fRow.subject_name || undefined
+      });
+      fMap.set(fRow.youtube_schedule_id, arr);
+    }
+
+    const curFac = await db.prepare('SELECT name FROM faculty WHERE id = ?').bind(id).first<{ name: string }>();
+    const facultyName = curFac?.name || 'Faculty';
+
+    ytSchedules = ytRows.map((r) => {
+      const assignedClasses = cMap.get(r.id) || [];
+      const assignedFaculties = fMap.get(r.id) || [];
+      const classDisplayName = assignedClasses.length > 0
+        ? assignedClasses.map((cl) => `${cl.name}${cl.batch ? ` (${cl.batch})` : ''}`).join(', ')
+        : 'General';
+
+      return {
+        id: r.id,
+        schedule_date: r.schedule_date,
+        start_time: r.start_time || '',
+        end_time: null,
+        class_id: assignedClasses[0]?.id || 0,
+        subject_id: r.subject_id || 0,
+        faculty_id: id,
+        schedule_type: r.schedule_type,
+        content: r.content,
+        status: r.status,
+        notes: r.notes,
+        platform: 'youtube' as const,
+        is_common: !!r.is_common,
+        classes: assignedClasses,
+        faculties: assignedFaculties,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        faculty: {
+          id: id,
+          name: facultyName
+        },
+        subject: r.is_common
+          ? { id: 0, name: 'Common' }
+          : r.subject_id
+          ? { id: r.subject_id, name: r.subject_name }
+          : null,
+        class: {
+          id: assignedClasses[0]?.id || 0,
+          name: classDisplayName,
+          batch: null
+        }
+      };
+    });
+  }
+
+  // Combine and sort by date ASC, then start_time ASC (items without time sorted after items with time)
+  const combined = [...schedules, ...ytSchedules].sort((a, b) => {
+    if (a.schedule_date !== b.schedule_date) {
+      return a.schedule_date.localeCompare(b.schedule_date);
+    }
+    const aTime = a.start_time || '';
+    const bTime = b.start_time || '';
+    if (!aTime && bTime) return 1;
+    if (aTime && !bTime) return -1;
+    return aTime.localeCompare(bTime);
+  });
+
+  return c.json(combined);
+});
+
+// GET /api/faculty/:id/youtube-schedules (Public)
+facultyRoute.get('/:id/youtube-schedules', async (c) => {
+  const db = c.env?.DB;
+  if (!db) {
+    return c.json({ error: 'DATABASE_UNAVAILABLE', message: 'D1 DB binding not found' }, 503);
+  }
+
+  const id = Number(c.req.param('id'));
+  if (isNaN(id)) {
+    return c.json({ error: 'BAD_REQUEST', message: 'Invalid faculty ID' }, 400);
+  }
+
+  const date = c.req.query('date');
+  const from = c.req.query('from');
+  const to = c.req.query('to');
+
+  let ytQuery = `
+    SELECT DISTINCT
+      ys.*,
+      s.name as subject_name
+    FROM youtube_schedules ys
+    JOIN youtube_schedule_faculties ysf ON ys.id = ysf.youtube_schedule_id
+    LEFT JOIN subjects s ON ys.subject_id = s.id
+    WHERE ysf.faculty_id IN (
+      SELECT id FROM faculty WHERE LOWER(TRIM(name)) = (
+        SELECT LOWER(TRIM(name)) FROM faculty WHERE id = ?
+      )
+    )
+  `;
+  const ytParams: unknown[] = [id];
+
+  if (date) {
+    ytQuery += ' AND ys.schedule_date = ?';
+    ytParams.push(date);
+  } else {
+    if (from) {
+      ytQuery += ' AND ys.schedule_date >= ?';
+      ytParams.push(from);
+    }
+    if (to) {
+      ytQuery += ' AND ys.schedule_date <= ?';
+      ytParams.push(to);
+    }
+  }
+
+  try {
+    const ytStmt = db.prepare(ytQuery);
+    const ytResult = await ytStmt.bind(...ytParams).all<any>();
+    const ytRows = ytResult.results || [];
+
+    if (ytRows.length === 0) {
+      return c.json([]);
+    }
+
+    const ytIds = ytRows.map((r) => r.id);
+    const placeholders = ytIds.map(() => '?').join(',');
+
+    const cRes = await db
+      .prepare(
+        `SELECT ysc.youtube_schedule_id, c.id, c.name, c.batch
+         FROM youtube_schedule_classes ysc
+         JOIN classes c ON ysc.class_id = c.id
+         WHERE ysc.youtube_schedule_id IN (${placeholders})
+         ORDER BY c.display_order ASC, c.name ASC`
+      )
+      .bind(...ytIds)
+      .all<any>();
+
+    const fRes = await db
+      .prepare(
+        `SELECT ysf.youtube_schedule_id, f.id, f.name, f.department, f.subject_id, s.name as subject_name
+         FROM youtube_schedule_faculties ysf
+         JOIN faculty f ON ysf.faculty_id = f.id
+         LEFT JOIN subjects s ON f.subject_id = s.id
+         WHERE ysf.youtube_schedule_id IN (${placeholders})
+         ORDER BY f.display_order ASC, f.name ASC`
+      )
+      .bind(...ytIds)
+      .all<any>();
+
+    const cMap = new Map<number, Array<{ id: number; name: string; batch?: string | null }>>();
+    for (const cRow of cRes.results || []) {
+      const arr = cMap.get(cRow.youtube_schedule_id) || [];
+      arr.push({ id: cRow.id, name: cRow.name, batch: cRow.batch || null });
+      cMap.set(cRow.youtube_schedule_id, arr);
+    }
+
+    const fMap = new Map<number, Array<{ id: number; name: string; department?: string | null; subject_id?: number; subject_name?: string }>>();
+    for (const fRow of fRes.results || []) {
+      const arr = fMap.get(fRow.youtube_schedule_id) || [];
+      arr.push({
+        id: fRow.id,
+        name: fRow.name,
+        department: fRow.department || null,
+        subject_id: fRow.subject_id,
+        subject_name: fRow.subject_name || undefined
+      });
+      fMap.set(fRow.youtube_schedule_id, arr);
+    }
+
+    const schedules = ytRows.map((r) => ({
+      id: r.id,
+      schedule_date: r.schedule_date,
+      start_time: r.start_time || null,
+      schedule_type: r.schedule_type,
+      is_common: !!r.is_common,
+      subject_id: r.subject_id || null,
+      content: r.content,
+      status: r.status,
+      notes: r.notes,
+      platform: 'youtube' as const,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      subject: r.is_common
+        ? { id: 0, name: 'Common' }
+        : r.subject_id
+        ? { id: r.subject_id, name: r.subject_name }
+        : null,
+      classes: cMap.get(r.id) || [],
+      faculties: fMap.get(r.id) || []
+    }));
+
+    return c.json(schedules);
+  } catch (err: any) {
+    return c.json({ error: 'QUERY_FAILED', message: err?.message || 'Failed to fetch YouTube schedules' }, 500);
+  }
 });
 
 // POST /api/faculty (Admin Protected)

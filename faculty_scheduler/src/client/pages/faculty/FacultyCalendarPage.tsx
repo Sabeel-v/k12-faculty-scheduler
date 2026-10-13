@@ -13,7 +13,9 @@ const STORAGE_KEY_FACULTY_ID = 'fs_selected_faculty_id';
 
 export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavigate }) => {
   const [faculty, setFaculty] = useState<Faculty | null>(null);
+  const [allFaculty, setAllFaculty] = useState<Faculty[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [showPreviousDates, setShowPreviousDates] = useState(false);
@@ -65,6 +67,7 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
           api.getFacultySchedules(facultyId!)
         ]);
         if (isMounted) {
+          setAllFaculty(facultyList);
           const found = facultyList.find((f) => f.id === facultyId);
           setFaculty(found || null);
           setSchedules(schData);
@@ -104,10 +107,27 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
     }
   }, [loading, schedules]);
 
+  // Compute all distinct subjects taught by this teacher across all their faculty records
+  const teacherSubjects = useMemo(() => {
+    if (!faculty) return [];
+    const key = faculty.name.trim().toLowerCase();
+    const subs = allFaculty
+      .filter((f) => f.name.trim().toLowerCase() === key && f.subject?.name)
+      .map((f) => f.subject!.name.trim());
+    return Array.from(new Set(subs));
+  }, [faculty, allFaculty]);
+
   // Group schedules by date
   const { groupedByDate, hasPastSchedules } = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     let list = schedules;
+
+    // Filter by selected subject tab if multi-subject
+    if (selectedSubjectFilter && selectedSubjectFilter !== 'ALL') {
+      list = list.filter(
+        (s) => (s.platform === 'youtube' && s.is_common) || s.subject?.name === selectedSubjectFilter
+      );
+    }
 
     const hasPast = schedules.some((s) => s.schedule_date && s.schedule_date < todayStr);
 
@@ -173,15 +193,18 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
       {/* Header Card */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <span>📅</span> {faculty ? `${faculty.name} — Full Schedule Calendar` : 'Full Schedule Calendar'}
             </h1>
-            {faculty?.subject && (
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                {faculty.subject.name}
+            {teacherSubjects.map((subName) => (
+              <span
+                key={subName}
+                className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200"
+              >
+                {subName}
               </span>
-            )}
+            ))}
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Complete schedule history and upcoming dates for {faculty ? `Prof. ${faculty.name}` : 'your classes'}
@@ -236,6 +259,46 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
           </div>
         </div>
       </div>
+
+      {/* Multi-subject quick filter tabs */}
+      {teacherSubjects.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-1">
+            Subject:
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedSubjectFilter('ALL')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              selectedSubjectFilter === 'ALL'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            All Subjects ({schedules.length})
+          </button>
+          {teacherSubjects.map((sub) => {
+            const count = schedules.filter(
+              (s) => (s.platform === 'youtube' && s.is_common) || s.subject?.name === sub
+            ).length;
+            const isActive = selectedSubjectFilter === sub;
+            return (
+              <button
+                key={sub}
+                type="button"
+                onClick={() => setSelectedSubjectFilter(sub)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {sub} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Content */}
       {loading ? (
@@ -340,7 +403,14 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
                 {/* Schedules list */}
                 <div className="space-y-3">
                   {group.items.map((item) => {
-                    const theme = getSubjectTheme(item.subject?.name);
+                    const isYT = item.platform === 'youtube';
+                    const theme = isYT && item.is_common
+                      ? {
+                          border: 'border-red-200',
+                          bg: 'bg-red-50/20',
+                          accent: 'bg-red-600'
+                        }
+                      : getSubjectTheme(item.subject?.name);
                     const hasTime = !!item.start_time;
 
                     return (
@@ -348,13 +418,17 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
                         key={item.id}
                         className={`p-4 rounded-2xl border ${theme.border} ${theme.bg} space-y-2.5 relative overflow-hidden`}
                       >
-                        <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${theme.accent}`} />
+                        <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${isYT ? 'bg-red-600' : theme.accent}`} />
 
                         {/* Top line: Time on left (if exists), Session on right */}
                         <div className="flex items-center justify-between pl-1">
                           {hasTime ? (
                             <span className="text-xs font-bold text-slate-700 font-mono tracking-tight bg-slate-100/90 px-2.5 py-0.5 rounded-lg">
                               {item.start_time}{item.end_time ? ` – ${item.end_time}` : ''}
+                            </span>
+                          ) : isYT ? (
+                            <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-lg">
+                              ⚡ Anytime Deliverable
                             </span>
                           ) : (
                             <span />
@@ -364,16 +438,63 @@ export const FacultyCalendarPage: React.FC<FacultyCalendarPageProps> = ({ onNavi
                             {item.status && item.status !== 'scheduled' && (
                               getStatusBadge(item.status)
                             )}
-                            <span className="text-[11px] font-extrabold px-3 py-1 rounded-xl bg-[#0f233a] text-white uppercase tracking-wider">
-                              {item.schedule_type}
-                            </span>
+
+                            {isYT ? (
+                              <span
+                                className={`text-[11px] font-extrabold px-3 py-1 rounded-xl uppercase tracking-wider flex items-center gap-1.5 shadow-2xs ${
+                                  item.schedule_type === 'Live'
+                                    ? 'bg-red-600 text-white'
+                                    : item.schedule_type === 'Content Video'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-amber-600 text-white'
+                                }`}
+                              >
+                                <span>▶️</span>
+                                <span>YouTube • {item.schedule_type}</span>
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                {item.subject?.name && (
+                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/90 text-slate-700 border border-slate-200 shadow-2xs">
+                                    {item.subject.name}
+                                  </span>
+                                )}
+                                <span className="text-[11px] font-extrabold px-3 py-1 rounded-xl bg-[#0f233a] text-white uppercase tracking-wider">
+                                  {item.schedule_type}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        {/* Class name */}
-                        <div className="pl-1 text-base font-extrabold text-slate-900 tracking-tight">
-                          {item.class?.name} {item.class?.batch ? `(${item.class.batch})` : ''}
-                        </div>
+                        {/* Class name / Multi-class chips */}
+                        {isYT && item.classes && item.classes.length > 0 ? (
+                          <div className="pl-1 space-y-1.5">
+                            <div className="flex flex-wrap gap-1.5">
+                              {item.classes.map((cls) => (
+                                <span
+                                  key={cls.id}
+                                  className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-slate-900 text-white tracking-tight"
+                                >
+                                  {cls.name} {cls.batch ? `(${cls.batch})` : ''}
+                                </span>
+                              ))}
+                            </div>
+                            {item.faculties && item.faculties.length > 1 && (
+                              <p className="text-[11px] text-slate-500 font-medium">
+                                👥 Joint session with:{' '}
+                                {item.faculties
+                                  .filter((f) => f.id !== facultyId)
+                                  .map((f) => f.name)
+                                  .join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="pl-1 text-base font-extrabold text-slate-900 tracking-tight">
+                            {item.class?.name} {item.class?.batch ? `(${item.class.batch})` : ''}
+                          </div>
+                        )}
 
                         {/* Topic / Content box */}
                         {item.content && (

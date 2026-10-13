@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../../lib/api';
 import type { Faculty, Schedule } from '../../types';
 
@@ -13,6 +13,7 @@ export const FacultyPage: React.FC = () => {
     return saved ? Number(saved) : null;
   });
 
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('ALL');
   const [loadingFaculty, setLoadingFaculty] = useState(true);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loadingSchedules, setLoadingSchedules] = useState(false);
@@ -95,7 +96,37 @@ export const FacultyPage: React.FC = () => {
     setSchedules([]);
   };
 
+  const groupedFaculty = useMemo(() => {
+    const map = new Map<string, { primaryId: number; name: string; subjects: string[] }>();
+    for (const f of facultyList) {
+      const key = f.name.trim().toLowerCase();
+      const existing = map.get(key);
+      const subjName = f.subject?.name?.trim();
+      if (existing) {
+        if (subjName && !existing.subjects.includes(subjName)) {
+          existing.subjects.push(subjName);
+        }
+      } else {
+        map.set(key, {
+          primaryId: f.id,
+          name: f.name.trim(),
+          subjects: subjName ? [subjName] : []
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [facultyList]);
+
   const currentFaculty = facultyList.find((f) => f.id === selectedFacultyId);
+
+  const teacherSubjects = useMemo(() => {
+    if (!currentFaculty) return [];
+    const key = currentFaculty.name.trim().toLowerCase();
+    const subs = facultyList
+      .filter((f) => f.name.trim().toLowerCase() === key && f.subject?.name)
+      .map((f) => f.subject!.name.trim());
+    return Array.from(new Set(subs));
+  }, [currentFaculty, facultyList]);
 
   // Compute Today and Tomorrow dates in YYYY-MM-DD
   const now = new Date();
@@ -105,8 +136,19 @@ export const FacultyPage: React.FC = () => {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-  const todaySchedules = schedules.filter((s) => s.schedule_date === todayStr);
-  const tomorrowSchedules = schedules.filter((s) => s.schedule_date === tomorrowStr);
+  // Filter schedules based on active subject tab (if multi-subject)
+  const filteredSchedules = useMemo(() => {
+    if (!selectedSubjectFilter || selectedSubjectFilter === 'ALL') {
+      return schedules;
+    }
+    return schedules.filter((s) => {
+      if (s.platform === 'youtube' && s.is_common) return true;
+      return s.subject?.name === selectedSubjectFilter;
+    });
+  }, [schedules, selectedSubjectFilter]);
+
+  const todaySchedules = filteredSchedules.filter((s) => s.schedule_date === todayStr);
+  const tomorrowSchedules = filteredSchedules.filter((s) => s.schedule_date === tomorrowStr);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -155,9 +197,9 @@ export const FacultyPage: React.FC = () => {
                 <option value="" disabled>
                   -- Select Faculty --
                 </option>
-                {facultyList.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name} — {f.subject?.name || 'General'}
+                {groupedFaculty.map((g) => (
+                  <option key={g.primaryId} value={g.primaryId}>
+                    {g.name} {g.subjects.length > 0 ? `— ${g.subjects.join(', ')}` : ''}
                   </option>
                 ))}
               </select>
@@ -170,13 +212,18 @@ export const FacultyPage: React.FC = () => {
           {/* Top Header Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
                   Welcome {currentFaculty.name} Sir
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                  {currentFaculty.subject?.name}
-                </span>
+                {teacherSubjects.map((subName) => (
+                  <span
+                    key={subName}
+                    className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200"
+                  >
+                    {subName}
+                  </span>
+                ))}
               </div>
               <p className="text-xs text-slate-500 mt-1">
                 {currentFaculty.department ? `${currentFaculty.department} • ` : ''}
@@ -194,6 +241,46 @@ export const FacultyPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Multi-subject quick filter tabs */}
+          {teacherSubjects.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-1">
+                Subject Filter:
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedSubjectFilter('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  selectedSubjectFilter === 'ALL'
+                    ? 'bg-slate-900 text-white shadow-2xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                All Subjects ({schedules.length})
+              </button>
+              {teacherSubjects.map((sub) => {
+                const count = schedules.filter(
+                  (s) => (s.platform === 'youtube' && s.is_common) || s.subject?.name === sub
+                ).length;
+                const isActive = selectedSubjectFilter === sub;
+                return (
+                  <button
+                    key={sub}
+                    type="button"
+                    onClick={() => setSelectedSubjectFilter(sub)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {sub} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {loadingSchedules ? (
             <div className="py-16 text-center text-sm text-slate-400">Loading your schedule...</div>
@@ -219,41 +306,95 @@ export const FacultyPage: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {todaySchedules.map((item) => (
-                        <div
-                          key={item.id}
-                          className="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3 relative overflow-hidden"
-                        >
-                          {/* Left vertical accent line */}
-                          <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-blue-600 rounded-l" />
+                      {todaySchedules.map((item) => {
+                        const isYT = item.platform === 'youtube';
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3 relative overflow-hidden"
+                          >
+                            {/* Left vertical accent line */}
+                            <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${isYT ? 'bg-red-600' : 'bg-blue-600'} rounded-l`} />
 
-                          {/* Top row: Time pill on left (if exists), Dark SESSION pill on right */}
-                          <div className="flex items-center justify-between pl-1">
-                            {item.start_time ? (
-                              <span className="text-xs font-bold text-slate-700 font-mono tracking-tight bg-slate-100/90 px-3 py-1 rounded-lg">
-                                {item.start_time}{item.end_time ? ` – ${item.end_time}` : ''}
-                              </span>
-                            ) : (
-                              <span />
-                            )}
-                            <span className="text-[11px] font-extrabold px-3 py-1 rounded-xl bg-[#0f233a] text-white uppercase tracking-wider">
-                              {item.schedule_type}
-                            </span>
-                          </div>
+                            {/* Top row: Time pill on left, Session / YouTube pill on right */}
+                            <div className="flex items-center justify-between pl-1">
+                              {item.start_time ? (
+                                <span className="text-xs font-bold text-slate-700 font-mono tracking-tight bg-slate-100/90 px-3 py-1 rounded-lg">
+                                  {item.start_time}{item.end_time ? ` – ${item.end_time}` : ''}
+                                </span>
+                              ) : isYT ? (
+                                <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                  ⚡ Anytime Deliverable
+                                </span>
+                              ) : (
+                                <span />
+                              )}
 
-                          {/* Middle row: Class Name */}
-                          <div className="pl-1 text-base font-extrabold text-slate-900 tracking-tight">
-                            {item.class?.name} {item.class?.batch ? `(${item.class.batch})` : ''}
-                          </div>
-
-                          {/* Bottom: Topic/Content container */}
-                          {item.content && (
-                            <div className="ml-1 px-4 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 text-xs font-semibold text-slate-700 tracking-wide">
-                              {item.content}
+                              {isYT ? (
+                                <span
+                                  className={`text-[11px] font-extrabold px-3 py-1 rounded-xl uppercase tracking-wider flex items-center gap-1.5 shadow-2xs ${
+                                    item.schedule_type === 'Live'
+                                      ? 'bg-red-600 text-white'
+                                      : item.schedule_type === 'Content Video'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-amber-600 text-white'
+                                  }`}
+                                >
+                                  <span>▶️</span>
+                                  <span>YouTube • {item.schedule_type}</span>
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  {item.subject?.name && (
+                                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+                                      {item.subject.name}
+                                    </span>
+                                  )}
+                                  <span className="text-[11px] font-extrabold px-3 py-1 rounded-xl bg-[#0f233a] text-white uppercase tracking-wider">
+                                    {item.schedule_type}
+                                  </span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ))}
+
+                            {/* Middle row: Class Name or Multi-Class Badges */}
+                            {isYT && item.classes && item.classes.length > 0 ? (
+                              <div className="pl-1 space-y-1.5">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {item.classes.map((cls) => (
+                                    <span
+                                      key={cls.id}
+                                      className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-slate-900 text-white tracking-tight"
+                                    >
+                                      {cls.name} {cls.batch ? `(${cls.batch})` : ''}
+                                    </span>
+                                  ))}
+                                </div>
+                                {item.faculties && item.faculties.length > 1 && (
+                                  <p className="text-[11px] text-slate-500 font-medium">
+                                    👥 Joint session with:{' '}
+                                    {item.faculties
+                                      .filter((f) => f.id !== selectedFacultyId)
+                                      .map((f) => f.name)
+                                      .join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="pl-1 text-base font-extrabold text-slate-900 tracking-tight">
+                                {item.class?.name} {item.class?.batch ? `(${item.class.batch})` : ''}
+                              </div>
+                            )}
+
+                            {/* Bottom: Topic/Content container */}
+                            {item.content && (
+                              <div className="ml-1 px-4 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 text-xs font-semibold text-slate-700 tracking-wide">
+                                {item.content}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -276,41 +417,95 @@ export const FacultyPage: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {tomorrowSchedules.map((item) => (
-                        <div
-                          key={item.id}
-                          className="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3 relative overflow-hidden"
-                        >
-                          {/* Left vertical accent line */}
-                          <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-indigo-600 rounded-l" />
+                      {tomorrowSchedules.map((item) => {
+                        const isYT = item.platform === 'youtube';
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3 relative overflow-hidden"
+                          >
+                            {/* Left vertical accent line */}
+                            <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${isYT ? 'bg-red-600' : 'bg-indigo-600'} rounded-l`} />
 
-                          {/* Top row: Time pill on left (if exists), Dark SESSION pill on right */}
-                          <div className="flex items-center justify-between pl-1">
-                            {item.start_time ? (
-                              <span className="text-xs font-bold text-slate-700 font-mono tracking-tight bg-slate-100/90 px-3 py-1 rounded-lg">
-                                {item.start_time}{item.end_time ? ` – ${item.end_time}` : ''}
-                              </span>
-                            ) : (
-                              <span />
-                            )}
-                            <span className="text-[11px] font-extrabold px-3 py-1 rounded-xl bg-[#0f233a] text-white uppercase tracking-wider">
-                              {item.schedule_type}
-                            </span>
-                          </div>
+                            {/* Top row: Time pill on left, Session / YouTube pill on right */}
+                            <div className="flex items-center justify-between pl-1">
+                              {item.start_time ? (
+                                <span className="text-xs font-bold text-slate-700 font-mono tracking-tight bg-slate-100/90 px-3 py-1 rounded-lg">
+                                  {item.start_time}{item.end_time ? ` – ${item.end_time}` : ''}
+                                </span>
+                              ) : isYT ? (
+                                <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                  ⚡ Anytime Deliverable
+                                </span>
+                              ) : (
+                                <span />
+                              )}
 
-                          {/* Middle row: Class Name */}
-                          <div className="pl-1 text-base font-extrabold text-slate-900 tracking-tight">
-                            {item.class?.name} {item.class?.batch ? `(${item.class.batch})` : ''}
-                          </div>
-
-                          {/* Bottom: Topic/Content container */}
-                          {item.content && (
-                            <div className="ml-1 px-4 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 text-xs font-semibold text-slate-700 tracking-wide">
-                              {item.content}
+                              {isYT ? (
+                                <span
+                                  className={`text-[11px] font-extrabold px-3 py-1 rounded-xl uppercase tracking-wider flex items-center gap-1.5 shadow-2xs ${
+                                    item.schedule_type === 'Live'
+                                      ? 'bg-red-600 text-white'
+                                      : item.schedule_type === 'Content Video'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-amber-600 text-white'
+                                  }`}
+                                >
+                                  <span>▶️</span>
+                                  <span>YouTube • {item.schedule_type}</span>
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  {item.subject?.name && (
+                                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+                                      {item.subject.name}
+                                    </span>
+                                  )}
+                                  <span className="text-[11px] font-extrabold px-3 py-1 rounded-xl bg-[#0f233a] text-white uppercase tracking-wider">
+                                    {item.schedule_type}
+                                  </span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ))}
+
+                            {/* Middle row: Class Name or Multi-Class Badges */}
+                            {isYT && item.classes && item.classes.length > 0 ? (
+                              <div className="pl-1 space-y-1.5">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {item.classes.map((cls) => (
+                                    <span
+                                      key={cls.id}
+                                      className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-slate-900 text-white tracking-tight"
+                                    >
+                                      {cls.name} {cls.batch ? `(${cls.batch})` : ''}
+                                    </span>
+                                  ))}
+                                </div>
+                                {item.faculties && item.faculties.length > 1 && (
+                                  <p className="text-[11px] text-slate-500 font-medium">
+                                    👥 Joint session with:{' '}
+                                    {item.faculties
+                                      .filter((f) => f.id !== selectedFacultyId)
+                                      .map((f) => f.name)
+                                      .join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="pl-1 text-base font-extrabold text-slate-900 tracking-tight">
+                                {item.class?.name} {item.class?.batch ? `(${item.class.batch})` : ''}
+                              </div>
+                            )}
+
+                            {/* Bottom: Topic/Content container */}
+                            {item.content && (
+                              <div className="ml-1 px-4 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 text-xs font-semibold text-slate-700 tracking-wide">
+                                {item.content}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

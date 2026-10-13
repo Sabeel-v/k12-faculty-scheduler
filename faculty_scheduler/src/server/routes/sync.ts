@@ -23,7 +23,11 @@ syncRoute.get('/version', async (c) => {
   const params: unknown[] = [];
 
   if (facultyId && !isNaN(Number(facultyId))) {
-    query += ' WHERE faculty_id = ?';
+    query += ` WHERE faculty_id IN (
+      SELECT id FROM faculty WHERE LOWER(TRIM(name)) = (
+        SELECT LOWER(TRIM(name)) FROM faculty WHERE id = ?
+      )
+    )`;
     params.push(Number(facultyId));
   }
 
@@ -33,7 +37,29 @@ syncRoute.get('/version', async (c) => {
 
     const count = row?.count ?? 0;
     const lastUpdated = row?.last_updated ?? 'none';
-    const version = `${count}-${lastUpdated}`;
+
+    // Also include YouTube schedules in the fingerprint
+    let ytQuery = 'SELECT COUNT(*) as count, MAX(updated_at) as last_updated FROM youtube_schedules';
+    const ytParams: unknown[] = [];
+
+    if (facultyId && !isNaN(Number(facultyId))) {
+      ytQuery = `SELECT COUNT(DISTINCT ys.id) as count, MAX(ys.updated_at) as last_updated 
+                 FROM youtube_schedules ys 
+                 JOIN youtube_schedule_faculties ysf ON ys.id = ysf.youtube_schedule_id 
+                 WHERE ysf.faculty_id IN (
+                   SELECT id FROM faculty WHERE LOWER(TRIM(name)) = (
+                     SELECT LOWER(TRIM(name)) FROM faculty WHERE id = ?
+                   )
+                 )`;
+      ytParams.push(Number(facultyId));
+    }
+
+    const ytStmt = db.prepare(ytQuery);
+    const ytRow = ytParams.length > 0 ? await ytStmt.bind(...ytParams).first<any>() : await ytStmt.first<any>();
+    const ytCount = ytRow?.count ?? 0;
+    const ytLastUpdated = ytRow?.last_updated ?? 'none';
+
+    const version = `${count}-${lastUpdated}-${ytCount}-${ytLastUpdated}`;
 
     // Return no-cache for the sync check itself so browser always gets the latest version tag
     c.header('Cache-Control', 'no-cache, no-store, must-revalidate');
