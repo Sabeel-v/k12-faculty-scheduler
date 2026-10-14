@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:wrangler": "wrangler dev",
     "typecheck": "tsc --noEmit",
+    "test": "npx tsx --test test/mcp.test.mjs",
     "build": "tsc && vite build",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "deploy": "npm run build && wrangler deploy",
@@ -19,16 +20,19 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
     "vite-plugin-pwa": "^1.3.0",
     "wrangler": "^4.129.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@tailwindcss/vite": "^4.3.3",
     "hono": "^4.13.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.6.7"
   }
 }

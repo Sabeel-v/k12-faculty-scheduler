@@ -413,40 +413,75 @@ export const YouTubeAdminSection: React.FC<YouTubeAdminSectionProps> = ({
                         key={item.id}
                         draggable
                         onDragStart={() => setDraggedScheduleId(item.id)}
-                        className={`p-4 rounded-2xl border ${theme.border} ${theme.bg} space-y-3 relative overflow-hidden transition-all duration-200 hover:shadow-md cursor-grab active:cursor-grabbing group bg-white`}
+                        className="relative p-4.5 rounded-2xl border border-slate-200/90 bg-white space-y-3.5 shadow-xs overflow-hidden transition-all duration-200 hover:shadow-md cursor-grab active:cursor-grabbing group"
                       >
-                        {/* Left vertical accent line */}
-                        <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${theme.accent}`} />
+                        {/* Left vertical red accent line */}
+                        <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-red-600 rounded-l-2xl" />
 
-                        {/* Top Line: Time + Session Type pill */}
-                        <div className="flex items-center justify-between pl-1">
+                        {/* Top Line: Time pill on left + LIVE / Type pill on right */}
+                        <div className="flex items-center justify-between">
                           {item.start_time ? (
-                            <span className="text-xs font-bold text-slate-700 font-mono tracking-tight bg-slate-100 px-2.5 py-0.5 rounded-lg">
-                              🕒 {item.start_time}
-                            </span>
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100 text-xs font-bold text-slate-700 font-mono tracking-tight">
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9" strokeWidth="2" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 7v5l3 2" />
+                              </svg>
+                              <span>{item.start_time}</span>
+                            </div>
                           ) : (
-                            <span className="text-[11px] font-semibold text-slate-400 bg-slate-100/70 px-2 py-0.5 rounded-lg">
-                              ⚡ Anytime
-                            </span>
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs font-semibold text-slate-500">
+                              <span>⚡</span>
+                              <span>Anytime</span>
+                            </div>
                           )}
 
-                          <span
-                            className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-xl uppercase tracking-wider flex items-center gap-1 shadow-2xs ${typeBadgeConfig.bg}`}
-                          >
-                            <span>{typeBadgeConfig.icon}</span>
-                            <span>{item.schedule_type}</span>
-                          </span>
+                          {item.schedule_type === 'Live' ? (
+                            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-red-600 text-white shadow-xs">
+                              <span className="w-2 h-2 rounded-full bg-white" />
+                              <span>LIVE</span>
+                            </span>
+                          ) : item.schedule_type === 'Content Video' ? (
+                            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-blue-600 text-white shadow-xs">
+                              <span>🎬</span>
+                              <span>CONTENT VIDEO</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-600 text-white shadow-xs">
+                              <span>⚡</span>
+                              <span>SHORTS</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Class Pill(s) */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.classes && item.classes.length > 0 ? (
+                            item.classes.map((cls) => (
+                              <span
+                                key={cls.id}
+                                className="text-xs font-black px-3 py-1 rounded-lg bg-slate-900 text-white tracking-tight"
+                              >
+                                {cls.name}{cls.batch ? ` (${cls.batch})` : ''}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs font-black px-3 py-1 rounded-lg bg-slate-900 text-white tracking-tight">
+                              General
+                            </span>
+                          )}
                         </div>
 
                         {/* Subject Badge */}
-                        <div className="pl-1 flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                           {item.is_common ? (
-                            <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
-                              ⭐ Common
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                              <span>⭐</span>
+                              <span>Common</span>
                             </span>
                           ) : item.subject?.name ? (
-                            <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700">
-                              {item.subject.name}
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200/80">
+                              <span>📚</span>
+                              <span>{item.subject.name}</span>
                             </span>
                           ) : null}
 
@@ -463,58 +498,37 @@ export const YouTubeAdminSection: React.FC<YouTubeAdminSectionProps> = ({
                           )}
                         </div>
 
-                        {/* Multi-Class Chips */}
-                        <div className="pl-1">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                            Classes:
-                          </span>
+                        {/* Assigned Faculty Pill with Divider */}
+                        <div className="pt-2.5 border-t border-slate-100">
                           <div className="flex flex-wrap gap-1.5">
-                            {item.classes && item.classes.length > 0 ? (
-                              item.classes.map((cls) => (
+                            {item.faculties && item.faculties.length > 0 ? (
+                              item.faculties.map((fac) => (
                                 <span
-                                  key={cls.id}
-                                  className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-slate-900 text-white tracking-tight"
+                                  key={fac.id}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-[#f8fafc] border border-slate-200 text-slate-800 uppercase tracking-wide"
                                 >
-                                  {cls.name} {cls.batch ? `(${cls.batch})` : ''}
+                                  <span>🧑‍🏫</span>
+                                  <span>{fac.name}</span>
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs text-slate-400">All Batches</span>
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-50 border border-slate-200 text-slate-400 italic">
+                                No faculty assigned
+                              </span>
                             )}
                           </div>
                         </div>
 
                         {/* Content / Chapter Details */}
                         {item.content && (
-                          <div className="ml-1 p-2.5 rounded-xl bg-slate-50/90 border border-slate-100 text-xs font-semibold text-slate-800 leading-relaxed">
+                          <div className="p-3.5 rounded-xl bg-[#f8fafc] border border-slate-100 text-xs font-bold text-slate-800 leading-relaxed tracking-wide whitespace-pre-line">
                             {item.content}
                           </div>
                         )}
 
-                        {/* Assigned Faculty Chips */}
-                        <div className="pl-1 pt-1 border-t border-slate-100">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                            Assigned Faculty:
-                          </span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {item.faculties && item.faculties.length > 0 ? (
-                              item.faculties.map((fac) => (
-                                <span
-                                  key={fac.id}
-                                  className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-200/60"
-                                >
-                                  👤 {fac.name}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-xs text-slate-400 italic">None assigned</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Card Action Buttons (Edit / Delete) */}
-                        <div className="flex items-center justify-between pt-2 pl-1 border-t border-slate-100">
-                          <span className="text-[10px] text-slate-400 italic">
+                        {/* Card Action Footer (Edit / Delete / Notes) */}
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-50">
+                          <span className="text-[10px] text-slate-400 italic truncate max-w-[180px]">
                             {item.notes ? `Note: ${item.notes}` : ''}
                           </span>
                           <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition">
@@ -526,7 +540,7 @@ export const YouTubeAdminSection: React.FC<YouTubeAdminSectionProps> = ({
                                 setTargetDate(item.schedule_date);
                                 setIsModalOpen(true);
                               }}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
                               title="Edit YouTube schedule"
                             >
                               ✏️
@@ -537,7 +551,7 @@ export const YouTubeAdminSection: React.FC<YouTubeAdminSectionProps> = ({
                                 e.stopPropagation();
                                 handleDelete(item.id);
                               }}
-                              className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
                               title="Delete YouTube schedule"
                             >
                               🗑️

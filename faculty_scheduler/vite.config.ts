@@ -9,7 +9,7 @@ function honoDevPlugin(): Plugin {
     name: 'hono-api-dev-server',
     configureServer(server) {
       server.middlewares.use(async (req: any, res, next) => {
-        if (req.url && req.url.startsWith('/api')) {
+        if (req.url && (req.url.startsWith('/api') || req.url.startsWith('/mcp') || req.url.startsWith('/sse'))) {
           try {
             const { default: app } = await server.ssrLoadModule('/src/server/index.ts');
             const handler = getRequestListener(app.fetch);
@@ -77,10 +77,10 @@ export default defineConfig({
         ]
       },
       workbox: {
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/mcp/, /^\/sse/],
         runtimeCaching: [
           {
-            urlPattern: /^\/api\/.*/i,
+            urlPattern: /^(\/api\/|\/mcp|\/sse).*/i,
             handler: 'NetworkOnly'
           }
         ]
